@@ -1,169 +1,329 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-:root{
-  --navy:#1e3a75; --navy-2:#173060; --navy-dark:#0b1034;
-  --primary:#3b5bdb; --primary-2:#4a78e0; --accent:#a020f0; --cyan:#22d3ee;
-  --bg:#eef0f7; --card:#fff; --text:#1e2a4a; --muted:#6b7694; --line:#e3e7f2;
-  --green:#12a150; --green-bg:#dcf7e6; --red:#d92d20; --red-bg:#fde8e6;
-  --amber:#b7791f; --amber-bg:#fdf0d5; --blue-bg:#e3ebff;
-  --radius:12px; --shadow:0 1px 3px rgba(20,30,70,.08),0 4px 14px rgba(20,30,70,.05);
-}
-*{box-sizing:border-box}
-html,body{margin:0;height:100%}
-body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;-webkit-font-smoothing:antialiased}
-h1,h2,h3{margin:0;color:var(--navy)}
-h1{font-size:26px;font-weight:700}
-h2{font-size:18px;font-weight:700}
-h3{font-size:15px;font-weight:700}
-.muted{color:var(--muted)}
-.small{font-size:12px}
-.right{text-align:right}
-.center{text-align:center}
-.hidden{display:none!important}
-.mt{margin-top:16px}.mb{margin-bottom:16px}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.row.between{justify-content:space-between}
-.grow{flex:1}
-a{color:var(--primary)}
+-- =====================================================================
+--  CASHLESS COLOMBIA · RRHH  ·  Esquema de base de datos (Supabase / PostgreSQL)
+--  Ejecutar UNA VEZ en:  Supabase → SQL Editor → New query → pegar → Run
+--  Es idempotente: se puede volver a ejecutar sin perder datos.
+-- =====================================================================
 
-/* ---- botones ---- */
-.btn{border:1px solid var(--line);background:#fff;color:var(--text);padding:9px 14px;border-radius:9px;font:600 13px Inter,sans-serif;cursor:pointer;transition:.15s;white-space:nowrap}
-.btn:hover{background:#f4f6fc}
-.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
-.btn.primary:hover{background:#2f4bc4}
-.btn.danger{color:var(--red);border-color:#f3b8b3;background:#fff}
-.btn.danger:hover{background:var(--red-bg)}
-.btn.danger.solid{background:var(--red);color:#fff;border-color:var(--red)}
-.btn.ok{background:var(--green);color:#fff;border-color:var(--green)}
-.btn.sm{padding:6px 10px;font-size:12px}
-.btn[disabled]{opacity:.5;cursor:not-allowed}
-.icon-btn{background:none;border:0;font-size:18px;cursor:pointer;padding:6px 8px;border-radius:8px}
-.icon-btn:hover{background:#f0f2fa}
+-- ---------- 1. CONFIGURACIÓN GLOBAL ----------------------------------
+create table if not exists config (
+  clave       text primary key,
+  valor       jsonb not null,
+  updated_at  timestamptz not null default now()
+);
 
-/* ---- formularios ---- */
-label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:0 0 5px}
-input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font:14px Inter,sans-serif;background:#fff;color:var(--text)}
-input:focus,select:focus,textarea:focus{outline:2px solid #c7d2fb;border-color:var(--primary)}
-textarea{min-height:80px;resize:vertical}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.field{margin-bottom:12px}
-.hint{font-size:12px;color:var(--muted);margin-top:4px}
-input[type=checkbox]{width:auto}
-.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--text);font-weight:500;margin:0}
+-- ---------- 2. TURNOS -------------------------------------------------
+create table if not exists turnos (
+  id               uuid primary key default gen_random_uuid(),
+  nombre           text not null,
+  tipo             text not null default 'continua' check (tipo in ('continua','partida')),
+  hora_inicio      time not null,
+  hora_fin         time not null,
+  almuerzo_inicio  time,                 -- solo jornada partida
+  almuerzo_fin     time,                 -- solo jornada partida
+  tolerancia_min   int  not null default 5,
+  dias             smallint[] not null default '{1,2,3,4,5}',  -- 0=dom … 6=sáb
+  activo           boolean not null default true,
+  created_at       timestamptz not null default now()
+);
 
-/* ---- tarjetas / tablas ---- */
-.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;border:1px solid #edf0f8}
-.card.flush{padding:0;overflow:hidden}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
-.kpi{display:flex;justify-content:space-between;align-items:flex-start}
-.kpi .v{font-size:28px;font-weight:800;color:var(--navy);line-height:1.1}
-.kpi .l{font-size:12px;color:var(--muted);font-weight:600;margin-top:4px}
-.kpi .ic{width:42px;height:42px;border-radius:11px;background:var(--blue-bg);display:grid;place-items:center;font-size:20px}
-.table-wrap{overflow-x:auto}
-table{width:100%;border-collapse:collapse}
-th{font-size:12px;text-align:left;color:var(--navy);font-weight:700;padding:12px 14px;border-bottom:1px solid var(--line);background:#fff;white-space:nowrap}
-td{padding:11px 14px;border-bottom:1px solid #f0f2f9;vertical-align:middle}
-tr:last-child td{border-bottom:0}
-tbody tr:hover{background:#fafbff}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-.badge{display:inline-block;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;background:#eef0f7;color:#59627f;white-space:nowrap}
-.badge.green{background:var(--green-bg);color:var(--green)}
-.badge.red{background:var(--red-bg);color:var(--red)}
-.badge.amber{background:var(--amber-bg);color:var(--amber)}
-.badge.blue{background:var(--blue-bg);color:var(--primary)}
-.avatar{width:36px;height:36px;border-radius:50%;background:var(--primary-2);color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px;flex:none;overflow:hidden;background-size:cover;background-position:center}
-.avatar img{width:100%;height:100%;object-fit:cover}
-.avatar.lg{width:88px;height:88px;font-size:26px}
-.person{display:flex;gap:11px;align-items:center}
-.person b{display:block;font-weight:600}
-.person span{font-size:12px;color:var(--muted)}
-.empty{padding:36px;text-align:center;color:var(--muted)}
-.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-.tab{padding:8px 14px;border-radius:9px;background:#fff;border:1px solid var(--line);font-weight:600;font-size:13px;cursor:pointer;color:var(--muted)}
-.tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
-.bar{height:10px;border-radius:9px;background:#e8ebf6;overflow:hidden}
-.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--primary),var(--accent))}
+-- ---------- 3. COLABORADORES -----------------------------------------
+create table if not exists colaboradores (
+  id              uuid primary key default gen_random_uuid(),
+  cedula          text not null unique,
+  nombres         text not null,
+  apellidos       text not null default '',
+  cargo           text,
+  area            text,
+  tipo_contrato   text not null default 'Término indefinido',
+  fecha_ingreso   date not null default current_date,
+  salario         numeric(14,2) not null default 0,
+  estado          text not null default 'activo' check (estado in ('activo','inactivo')),
+  correo          text,
+  telefono        text,
+  rol             text not null default 'Colaborador',
+  supervisor      text,
+  turno_id        uuid references turnos(id) on delete set null,
+  nfc_tag         text unique,                 -- UID del tag NFC (evita duplicados)
+  foto_url        text,                        -- enlace de Google Drive u otro
+  pass_hash       text,                        -- null = contraseña inicial = cédula
+  riesgo_arl      smallint not null default 1 check (riesgo_arl between 1 and 5),
+  eps             text, pension text, caja text, cesantias text,
+  banco           text, cuenta_bancaria text,
+  direccion       text, fecha_nacimiento date,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_colab_estado on colaboradores(estado);
 
-/* ---- layout de panel ---- */
-.app{display:flex;min-height:100vh}
-.sidebar{width:250px;background:var(--navy);color:#dbe4ff;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;left:0;z-index:30;transition:transform .2s}
-.sidebar .brand{padding:18px 16px;display:flex;gap:10px;align-items:center;border-bottom:1px solid rgba(255,255,255,.12)}
-.sidebar .brand img{width:46px;height:46px;object-fit:contain}
-.sidebar .brand b{display:block;font-size:17px;color:#fff;line-height:1.1}
-.sidebar .brand span{font-size:11px;color:#a9b8e6}
-.nav{flex:1;overflow-y:auto;padding:10px 12px}
-.nav-group{font-size:11px;font-weight:700;letter-spacing:.04em;color:#93a5da;margin:16px 8px 6px;text-transform:uppercase}
-.nav a{display:flex;gap:11px;align-items:center;padding:10px 12px;border-radius:9px;color:#dbe4ff;text-decoration:none;font-weight:600;cursor:pointer;margin-bottom:2px}
-.nav a:hover{background:rgba(255,255,255,.08)}
-.nav a.active{background:var(--primary-2);color:#fff}
-.side-foot{padding:12px;border-top:1px solid rgba(255,255,255,.12);display:grid;gap:8px}
-.side-foot .btn{background:transparent;color:#fff;border-color:rgba(255,255,255,.35);text-align:center;text-decoration:none;display:block}
-.side-foot .btn:hover{background:rgba(255,255,255,.1)}
-.main{margin-left:250px;flex:1;min-width:0}
-.topbar{height:68px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 24px;position:sticky;top:0;z-index:20}
-.topbar .search{max-width:420px;flex:1}
-.top-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
-.userchip{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:99px;padding:5px 14px 5px 6px;font-weight:600;cursor:pointer;background:#fff}
-.content{padding:26px 28px 60px;max-width:1500px}
-.page-head{margin-bottom:18px}
-.page-head p{margin:4px 0 0;color:var(--muted)}
-.menu-btn{display:none}
-.bell{position:relative}
-.bell .dot{position:absolute;top:2px;right:2px;min-width:17px;height:17px;border-radius:99px;background:var(--red);color:#fff;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 4px}
-.dropdown{position:absolute;right:0;top:46px;width:360px;max-height:70vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(20,30,70,.18);z-index:50}
-.dropdown .it{padding:11px 14px;border-bottom:1px solid #f0f2f9;display:flex;gap:10px}
-.dropdown .it.new{background:#f5f8ff}
-.dropdown .it small{color:var(--muted);display:block}
+-- ---------- 4. ADMINISTRADORES ---------------------------------------
+create table if not exists admins (
+  id              uuid primary key default gen_random_uuid(),
+  usuario         text not null unique,
+  nombre          text,
+  pass_hash       text not null,
+  colaborador_id  uuid references colaboradores(id) on delete cascade,
+  activo          boolean not null default true,
+  created_at      timestamptz not null default now()
+);
 
-/* ---- modal / toast ---- */
-.modal-back{position:fixed;inset:0;background:rgba(10,16,45,.55);display:grid;place-items:center;z-index:100;padding:16px}
-.modal{background:#fff;border-radius:14px;width:100%;max-width:640px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
-.modal.wide{max-width:960px}
-.modal-head{padding:18px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}
-.modal-body{padding:18px 22px;overflow-y:auto}
-.modal-foot{padding:14px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px}
-.toast-wrap{position:fixed;bottom:20px;right:20px;display:grid;gap:8px;z-index:200}
-.toast{background:var(--navy-dark);color:#fff;padding:12px 16px;border-radius:10px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:340px}
-.toast.err{background:var(--red)}.toast.ok{background:var(--green)}
+-- ---------- 5. MARCACIONES (ingresos / salidas) ----------------------
+create table if not exists marcaciones (
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  fecha           date not null,                       -- fecha local de la marcación
+  ts              timestamptz not null,                -- instante exacto
+  tipo            text not null check (tipo in ('ingreso','salida')),
+  origen          text not null default 'nfc' check (origen in ('nfc','cedula','manual','auto')),
+  puntualidad     text check (puntualidad in ('temprano','a_tiempo','tarde')),
+  diff_min        int,                                 -- minutos vs. hora esperada del turno
+  turno_id        uuid references turnos(id) on delete set null,
+  turno           jsonb,                               -- copia del turno vigente al marcar (historial inmutable)
+  nota            text,
+  created_at      timestamptz not null default now()
+);
+-- Si ya había ejecutado una versión anterior del esquema, esto agrega la columna sin perder datos:
+alter table marcaciones add column if not exists turno jsonb;
+create index if not exists idx_marc_colab_fecha on marcaciones(colaborador_id, fecha);
+create index if not exists idx_marc_fecha on marcaciones(fecha);
+create index if not exists idx_marc_ts on marcaciones(ts desc);
 
-/* ---- chat ---- */
-.chat{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 230px);min-height:420px}
-.chat-list{border-right:1px solid var(--line);overflow-y:auto}
-.chat-list .ci{padding:11px 14px;display:flex;gap:10px;align-items:center;cursor:pointer;border-bottom:1px solid #f0f2f9}
-.chat-list .ci.active{background:var(--blue-bg)}
-.chat-pane{display:flex;flex-direction:column;min-width:0}
-.msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px;background:#f7f8fd}
-.msg{max-width:72%;padding:9px 13px;border-radius:14px;background:#fff;border:1px solid var(--line);align-self:flex-start;word-wrap:break-word}
-.msg.me{align-self:flex-end;background:var(--primary);color:#fff;border-color:var(--primary)}
-.msg small{display:block;opacity:.7;font-size:10px;margin-top:3px}
-.chat-in{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line)}
+-- ---------- 6. PERMISOS / INCAPACIDADES ------------------------------
+create table if not exists permisos (
+  id               uuid primary key default gen_random_uuid(),
+  colaborador_id   uuid not null references colaboradores(id) on delete cascade,
+  tipo             text not null default 'permiso_remunerado'
+                   check (tipo in ('permiso_remunerado','permiso_no_remunerado','incapacidad','licencia','vacaciones','otro')),
+  fecha_inicio     date not null,
+  fecha_fin        date not null,
+  motivo           text,
+  documento_url    text,
+  documento_nombre text,
+  estado           text not null default 'pendiente' check (estado in ('pendiente','aceptado','rechazado')),
+  respuesta        text,
+  created_at       timestamptz not null default now(),
+  resuelto_at      timestamptz
+);
+create index if not exists idx_perm_colab on permisos(colaborador_id, estado);
 
-.login-wrap{min-height:100vh;display:grid;place-items:center;background:radial-gradient(1200px 600px at 20% 0%,#2a3f8f 0%,transparent 60%),radial-gradient(900px 500px at 100% 100%,#6b21a8 0%,transparent 55%),var(--navy-dark);padding:20px}
-.login-card{background:#fff;border-radius:18px;padding:30px;width:100%;max-width:400px;box-shadow:0 30px 80px rgba(0,0,0,.4)}
-.login-card img{width:120px;display:block;margin:-10px auto 4px;background:var(--navy-dark);border-radius:18px;padding:6px}
+-- ---------- 7. CHAT PRIVADO ADMIN ↔ COLABORADOR ----------------------
+create table if not exists mensajes (
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  remitente       text not null check (remitente in ('admin','colaborador')),
+  texto           text not null,
+  leido           boolean not null default false,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_msg_colab on mensajes(colaborador_id, created_at);
 
-.pill-toggle{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #f0f2f9;gap:12px}
-.switch{position:relative;width:44px;height:24px;flex:none}
-.switch input{opacity:0;width:0;height:0}
-.switch span{position:absolute;inset:0;background:#c9cfe4;border-radius:99px;cursor:pointer;transition:.2s}
-.switch span:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
-.switch input:checked+span{background:var(--green)}
-.switch input:checked+span:before{transform:translateX(20px)}
+-- ---------- 8. NOTIFICACIONES (campana del admin) --------------------
+create table if not exists notificaciones (
+  id              uuid primary key default gen_random_uuid(),
+  tipo            text not null,          -- ingreso | salida | permiso | mensaje | denuncia | adelanto | otro
+  titulo          text not null,
+  detalle         text,
+  colaborador_id  uuid references colaboradores(id) on delete cascade,
+  leida           boolean not null default false,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_notif_leida on notificaciones(leida, created_at desc);
 
-@media (max-width:900px){
-  .sidebar{transform:translateX(-100%)}
-  .sidebar.open{transform:none}
-  .main{margin-left:0}
-  .menu-btn{display:inline-block}
-  .content{padding:18px 14px 60px}
-  .topbar{padding:0 12px}
-  .grid2,.grid3{grid-template-columns:1fr}
-  .chat{grid-template-columns:1fr;height:auto}
-  .chat-list{max-height:180px;border-right:0;border-bottom:1px solid var(--line)}
-  .msgs{height:50vh}
-  .dropdown{position:fixed;left:10px;right:10px;width:auto;top:70px}
-  .userchip span.nm{display:none}
-}
-@media print{.sidebar,.topbar,.btn{display:none!important}.main{margin:0}}
-.full{grid-column:1/-1}
-.grid2>.field.full{grid-column:1/-1}
+-- ---------- 9. NÓMINA -------------------------------------------------
+create table if not exists nominas (
+  id              uuid primary key default gen_random_uuid(),
+  periodo         text not null,          -- 2026-09-M | 2026-09-Q1 | 2026-09-Q2
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  datos           jsonb not null,         -- detalle completo de la liquidación
+  neto            numeric(14,2) not null default 0,
+  estado          text not null default 'liquidada' check (estado in ('borrador','liquidada','pagada')),
+  created_at      timestamptz not null default now(),
+  unique (periodo, colaborador_id)
+);
+
+-- ---------- 10. MÓDULOS OPCIONALES -----------------------------------
+create table if not exists documentos (          -- Documentos y firma
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  titulo          text not null,
+  tipo            text default 'Contrato',
+  url             text,
+  requiere_firma  boolean not null default true,
+  firmado         boolean not null default false,
+  firma_texto     text,
+  firmado_at      timestamptz,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists activos (              -- Activos asignados
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid references colaboradores(id) on delete set null,
+  nombre          text not null,
+  tipo            text,
+  serial          text,
+  fecha_entrega   date,
+  estado          text not null default 'asignado' check (estado in ('asignado','devuelto','dañado','perdido')),
+  notas           text,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists adelantos (            -- Adelantos de sueldo
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  monto           numeric(14,2) not null check (monto > 0),
+  motivo          text,
+  estado          text not null default 'pendiente' check (estado in ('pendiente','aprobado','rechazado','descontado')),
+  nomina_periodo  text,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists objetivos (            -- Objetivos
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  titulo          text not null,
+  descripcion     text,
+  progreso        int not null default 0 check (progreso between 0 and 100),
+  fecha_limite    date,
+  estado          text not null default 'en_curso' check (estado in ('en_curso','cumplido','vencido','cancelado')),
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists reconocimientos (      -- Reconocimientos
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  titulo          text not null,
+  mensaje         text,
+  icono           text default '⭐',
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists encuestas (            -- Encuestas
+  id              uuid primary key default gen_random_uuid(),
+  titulo          text not null,
+  descripcion     text,
+  preguntas       jsonb not null default '[]',   -- ["¿Pregunta 1?", "¿Pregunta 2?"] (escala 1-5)
+  activa          boolean not null default true,
+  created_at      timestamptz not null default now()
+);
+create table if not exists encuesta_respuestas (
+  id              uuid primary key default gen_random_uuid(),
+  encuesta_id     uuid not null references encuestas(id) on delete cascade,
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  respuestas      jsonb not null default '[]',
+  comentario      text,
+  created_at      timestamptz not null default now(),
+  unique (encuesta_id, colaborador_id)
+);
+
+create table if not exists beneficios (           -- Beneficios
+  id              uuid primary key default gen_random_uuid(),
+  titulo          text not null,
+  descripcion     text,
+  categoria       text,
+  vigencia        date,
+  activo          boolean not null default true,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists denuncias (            -- Canal de denuncias
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid references colaboradores(id) on delete set null,
+  anonima         boolean not null default false,
+  tipo            text default 'Otro',
+  descripcion     text not null,
+  estado          text not null default 'recibida' check (estado in ('recibida','en_revision','cerrada')),
+  respuesta       text,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists comunicados (          -- Comunicación (cartelera)
+  id              uuid primary key default gen_random_uuid(),
+  titulo          text not null,
+  mensaje         text not null,
+  fijado          boolean not null default false,
+  created_at      timestamptz not null default now()
+);
+
+-- ---------- 11. SEGURIDAD (RLS) --------------------------------------
+-- La app usa la clave "anon" (sin Supabase Auth), por eso las políticas permiten
+-- a "anon" operar. La validación de usuarios se hace en la propia app contra
+-- estas tablas. Ver README para recomendaciones de endurecimiento.
+do $$
+declare t text;
+begin
+  for t in select unnest(array[
+    'config','turnos','colaboradores','admins','marcaciones','permisos','mensajes',
+    'notificaciones','nominas','documentos','activos','adelantos','objetivos',
+    'reconocimientos','encuestas','encuesta_respuestas','beneficios','denuncias','comunicados'])
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('drop policy if exists "app_anon_all" on %I', t);
+    execute format('create policy "app_anon_all" on %I for all to anon, authenticated using (true) with check (true)', t);
+    execute format('grant all on %I to anon, authenticated', t);
+  end loop;
+end $$;
+
+-- ---------- 12. STORAGE (documentos de permisos e incapacidades) -----
+insert into storage.buckets (id, name, public)
+values ('documentos', 'documentos', true)
+on conflict (id) do nothing;
+
+drop policy if exists "documentos_anon_all" on storage.objects;
+create policy "documentos_anon_all" on storage.objects
+  for all to anon, authenticated
+  using (bucket_id = 'documentos') with check (bucket_id = 'documentos');
+
+-- ---------- 13. DATOS INICIALES --------------------------------------
+-- Administrador por defecto:  usuario = admin   contraseña = 1234
+-- (hash = SHA-256 de "cashless-rrhh:" + contraseña; cámbiala desde el panel)
+insert into admins (usuario, nombre, pass_hash)
+values ('admin', 'Administrador', '8ce7e8830c0de737cf1cfa9046e3663ad53912c8a4af5cc644f6036a0f5a9930')
+on conflict (usuario) do nothing;
+
+insert into config (clave, valor) values
+('modulos', '{
+  "asistencia": true, "nomina": true, "certificados": true, "documentos": true,
+  "activos": true, "adelantos": true, "objetivos": true, "reconocimientos": true,
+  "encuestas": true, "beneficios": true, "denuncias": true, "comunicacion": true,
+  "parametros": true
+}'::jsonb),
+('empresa', '{
+  "nombre": "Cashless Colombia S.A.S.", "nit": "900.000.000-0", "direccion": "",
+  "ciudad": "Bogotá D.C.", "telefono": "", "correo": "",
+  "representante": "Representante Legal", "cargo_rep": "Gerente de Talento Humano",
+  "exonerado_114_1": true
+}'::jsonb),
+('parametros', '{
+  "smmlv": 1750905, "aux_transporte": 249095,
+  "recargo_nocturno": 0.35, "extra_diurna": 0.25, "extra_nocturna": 0.75,
+  "hora_nocturna_inicio": 19, "hora_nocturna_fin": 6,
+  "salud_empleado": 0.04, "pension_empleado": 0.04,
+  "salud_empleador": 0.085, "pension_empleador": 0.12,
+  "caja": 0.04, "sena": 0.02, "icbf": 0.03,
+  "cesantias": 0.0833, "int_cesantias": 0.01, "prima": 0.0833, "vacaciones": 0.0417,
+  "tolerancia_min": 5, "horas_mes_override": null
+}'::jsonb)
+on conflict (clave) do nothing;
+
+insert into turnos (nombre, tipo, hora_inicio, hora_fin, almuerzo_inicio, almuerzo_fin, dias)
+select * from (values
+  ('Administrativo partido',  'partida',  '08:00'::time, '17:00'::time, '12:00'::time, '13:00'::time, '{1,2,3,4,5}'::smallint[]),
+  ('Operativo continuo',      'continua', '06:00'::time, '14:00'::time, null::time,    null::time,    '{1,2,3,4,5,6}'::smallint[]),
+  ('Tarde continuo',          'continua', '14:00'::time, '22:00'::time, null::time,    null::time,    '{1,2,3,4,5,6}'::smallint[])
+) as v(nombre,tipo,hora_inicio,hora_fin,almuerzo_inicio,almuerzo_fin,dias)
+where not exists (select 1 from turnos);
+
+-- ---------- 14. ACTUALIZACIÓN v2 (idempotente) -------------------------
+-- Género del colaborador (analítica de personal)
+alter table colaboradores add column if not exists genero text;
+
+-- Ausencia temporal: el colaborador la solicita en su portal y el checador la enlaza con sus marcaciones
+alter table permisos add column if not exists hora_salida         time;
+alter table permisos add column if not exists duracion_min        int;
+alter table permisos add column if not exists regresa_mismo_dia   boolean;
+alter table permisos add column if not exists marcacion_salida_id  uuid references marcaciones(id) on delete set null;
+alter table permisos add column if not exists marcacion_regreso_id uuid references marcaciones(id) on delete set null;
+alter table permisos drop constraint if exists permisos_tipo_check;
+alter table permisos add constraint permisos_tipo_check check (tipo in
+  ('permiso_remunerado','permiso_no_remunerado','ausencia_temporal','incapacidad','licencia','vacaciones','otro'));
+
+-- Fin del esquema
+-- NOTA: el módulo "Procesos de selección" usa tablas propias en el archivo schema_seleccion.sql
