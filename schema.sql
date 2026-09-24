@@ -1,0 +1,311 @@
+-- =====================================================================
+--  CASHLESS COLOMBIA · RRHH  ·  Esquema de base de datos (Supabase / PostgreSQL)
+--  Ejecutar UNA VEZ en:  Supabase → SQL Editor → New query → pegar → Run
+--  Es idempotente: se puede volver a ejecutar sin perder datos.
+-- =====================================================================
+
+-- ---------- 1. CONFIGURACIÓN GLOBAL ----------------------------------
+create table if not exists config (
+  clave       text primary key,
+  valor       jsonb not null,
+  updated_at  timestamptz not null default now()
+);
+
+-- ---------- 2. TURNOS -------------------------------------------------
+create table if not exists turnos (
+  id               uuid primary key default gen_random_uuid(),
+  nombre           text not null,
+  tipo             text not null default 'continua' check (tipo in ('continua','partida')),
+  hora_inicio      time not null,
+  hora_fin         time not null,
+  almuerzo_inicio  time,                 -- solo jornada partida
+  almuerzo_fin     time,                 -- solo jornada partida
+  tolerancia_min   int  not null default 5,
+  dias             smallint[] not null default '{1,2,3,4,5}',  -- 0=dom … 6=sáb
+  activo           boolean not null default true,
+  created_at       timestamptz not null default now()
+);
+
+-- ---------- 3. COLABORADORES -----------------------------------------
+create table if not exists colaboradores (
+  id              uuid primary key default gen_random_uuid(),
+  cedula          text not null unique,
+  nombres         text not null,
+  apellidos       text not null default '',
+  cargo           text,
+  area            text,
+  tipo_contrato   text not null default 'Término indefinido',
+  fecha_ingreso   date not null default current_date,
+  salario         numeric(14,2) not null default 0,
+  estado          text not null default 'activo' check (estado in ('activo','inactivo')),
+  correo          text,
+  telefono        text,
+  rol             text not null default 'Colaborador',
+  supervisor      text,
+  turno_id        uuid references turnos(id) on delete set null,
+  nfc_tag         text unique,                 -- UID del tag NFC (evita duplicados)
+  foto_url        text,                        -- enlace de Google Drive u otro
+  pass_hash       text,                        -- null = contraseña inicial = cédula
+  riesgo_arl      smallint not null default 1 check (riesgo_arl between 1 and 5),
+  eps             text, pension text, caja text, cesantias text,
+  banco           text, cuenta_bancaria text,
+  direccion       text, fecha_nacimiento date,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_colab_estado on colaboradores(estado);
+
+-- ---------- 4. ADMINISTRADORES ---------------------------------------
+create table if not exists admins (
+  id              uuid primary key default gen_random_uuid(),
+  usuario         text not null unique,
+  nombre          text,
+  pass_hash       text not null,
+  colaborador_id  uuid references colaboradores(id) on delete cascade,
+  activo          boolean not null default true,
+  created_at      timestamptz not null default now()
+);
+
+-- ---------- 5. MARCACIONES (ingresos / salidas) ----------------------
+create table if not exists marcaciones (
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  fecha           date not null,                       -- fecha local de la marcación
+  ts              timestamptz not null,                -- instante exacto
+  tipo            text not null check (tipo in ('ingreso','salida')),
+  origen          text not null default 'nfc' check (origen in ('nfc','cedula','manual','auto')),
+  puntualidad     text check (puntualidad in ('temprano','a_tiempo','tarde')),
+  diff_min        int,                                 -- minutos vs. hora esperada del turno
+  turno_id        uuid references turnos(id) on delete set null,
+  nota            text,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_marc_colab_fecha on marcaciones(colaborador_id, fecha);
+create index if not exists idx_marc_fecha on marcaciones(fecha);
+create index if not exists idx_marc_ts on marcaciones(ts desc);
+
+-- ---------- 6. PERMISOS / INCAPACIDADES ------------------------------
+create table if not exists permisos (
+  id               uuid primary key default gen_random_uuid(),
+  colaborador_id   uuid not null references colaboradores(id) on delete cascade,
+  tipo             text not null default 'permiso_remunerado'
+                   check (tipo in ('permiso_remunerado','permiso_no_remunerado','incapacidad','licencia','vacaciones','otro')),
+  fecha_inicio     date not null,
+  fecha_fin        date not null,
+  motivo           text,
+  documento_url    text,
+  documento_nombre text,
+  estado           text not null default 'pendiente' check (estado in ('pendiente','aceptado','rechazado')),
+  respuesta        text,
+  created_at       timestamptz not null default now(),
+  resuelto_at      timestamptz
+);
+create index if not exists idx_perm_colab on permisos(colaborador_id, estado);
+
+-- ---------- 7. CHAT PRIVADO ADMIN ↔ COLABORADOR ----------------------
+create table if not exists mensajes (
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  remitente       text not null check (remitente in ('admin','colaborador')),
+  texto           text not null,
+  leido           boolean not null default false,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_msg_colab on mensajes(colaborador_id, created_at);
+
+-- ---------- 8. NOTIFICACIONES (campana del admin) --------------------
+create table if not exists notificaciones (
+  id              uuid primary key default gen_random_uuid(),
+  tipo            text not null,          -- ingreso | salida | permiso | mensaje | denuncia | adelanto | otro
+  titulo          text not null,
+  detalle         text,
+  colaborador_id  uuid references colaboradores(id) on delete cascade,
+  leida           boolean not null default false,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_notif_leida on notificaciones(leida, created_at desc);
+
+-- ---------- 9. NÓMINA -------------------------------------------------
+create table if not exists nominas (
+  id              uuid primary key default gen_random_uuid(),
+  periodo         text not null,          -- 2026-09-M | 2026-09-Q1 | 2026-09-Q2
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  datos           jsonb not null,         -- detalle completo de la liquidación
+  neto            numeric(14,2) not null default 0,
+  estado          text not null default 'liquidada' check (estado in ('borrador','liquidada','pagada')),
+  created_at      timestamptz not null default now(),
+  unique (periodo, colaborador_id)
+);
+
+-- ---------- 10. MÓDULOS OPCIONALES -----------------------------------
+create table if not exists documentos (          -- Documentos y firma
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  titulo          text not null,
+  tipo            text default 'Contrato',
+  url             text,
+  requiere_firma  boolean not null default true,
+  firmado         boolean not null default false,
+  firma_texto     text,
+  firmado_at      timestamptz,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists activos (              -- Activos asignados
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid references colaboradores(id) on delete set null,
+  nombre          text not null,
+  tipo            text,
+  serial          text,
+  fecha_entrega   date,
+  estado          text not null default 'asignado' check (estado in ('asignado','devuelto','dañado','perdido')),
+  notas           text,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists adelantos (            -- Adelantos de sueldo
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  monto           numeric(14,2) not null check (monto > 0),
+  motivo          text,
+  estado          text not null default 'pendiente' check (estado in ('pendiente','aprobado','rechazado','descontado')),
+  nomina_periodo  text,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists objetivos (            -- Objetivos
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  titulo          text not null,
+  descripcion     text,
+  progreso        int not null default 0 check (progreso between 0 and 100),
+  fecha_limite    date,
+  estado          text not null default 'en_curso' check (estado in ('en_curso','cumplido','vencido','cancelado')),
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists reconocimientos (      -- Reconocimientos
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  titulo          text not null,
+  mensaje         text,
+  icono           text default '⭐',
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists encuestas (            -- Encuestas
+  id              uuid primary key default gen_random_uuid(),
+  titulo          text not null,
+  descripcion     text,
+  preguntas       jsonb not null default '[]',   -- ["¿Pregunta 1?", "¿Pregunta 2?"] (escala 1-5)
+  activa          boolean not null default true,
+  created_at      timestamptz not null default now()
+);
+create table if not exists encuesta_respuestas (
+  id              uuid primary key default gen_random_uuid(),
+  encuesta_id     uuid not null references encuestas(id) on delete cascade,
+  colaborador_id  uuid not null references colaboradores(id) on delete cascade,
+  respuestas      jsonb not null default '[]',
+  comentario      text,
+  created_at      timestamptz not null default now(),
+  unique (encuesta_id, colaborador_id)
+);
+
+create table if not exists beneficios (           -- Beneficios
+  id              uuid primary key default gen_random_uuid(),
+  titulo          text not null,
+  descripcion     text,
+  categoria       text,
+  vigencia        date,
+  activo          boolean not null default true,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists denuncias (            -- Canal de denuncias
+  id              uuid primary key default gen_random_uuid(),
+  colaborador_id  uuid references colaboradores(id) on delete set null,
+  anonima         boolean not null default false,
+  tipo            text default 'Otro',
+  descripcion     text not null,
+  estado          text not null default 'recibida' check (estado in ('recibida','en_revision','cerrada')),
+  respuesta       text,
+  created_at      timestamptz not null default now()
+);
+
+create table if not exists comunicados (          -- Comunicación (cartelera)
+  id              uuid primary key default gen_random_uuid(),
+  titulo          text not null,
+  mensaje         text not null,
+  fijado          boolean not null default false,
+  created_at      timestamptz not null default now()
+);
+
+-- ---------- 11. SEGURIDAD (RLS) --------------------------------------
+-- La app usa la clave "anon" (sin Supabase Auth), por eso las políticas permiten
+-- a "anon" operar. La validación de usuarios se hace en la propia app contra
+-- estas tablas. Ver README para recomendaciones de endurecimiento.
+do $$
+declare t text;
+begin
+  for t in select unnest(array[
+    'config','turnos','colaboradores','admins','marcaciones','permisos','mensajes',
+    'notificaciones','nominas','documentos','activos','adelantos','objetivos',
+    'reconocimientos','encuestas','encuesta_respuestas','beneficios','denuncias','comunicados'])
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('drop policy if exists "app_anon_all" on %I', t);
+    execute format('create policy "app_anon_all" on %I for all to anon, authenticated using (true) with check (true)', t);
+    execute format('grant all on %I to anon, authenticated', t);
+  end loop;
+end $$;
+
+-- ---------- 12. STORAGE (documentos de permisos e incapacidades) -----
+insert into storage.buckets (id, name, public)
+values ('documentos', 'documentos', true)
+on conflict (id) do nothing;
+
+drop policy if exists "documentos_anon_all" on storage.objects;
+create policy "documentos_anon_all" on storage.objects
+  for all to anon, authenticated
+  using (bucket_id = 'documentos') with check (bucket_id = 'documentos');
+
+-- ---------- 13. DATOS INICIALES --------------------------------------
+-- Administrador por defecto:  usuario = admin   contraseña = 1234
+-- (hash = SHA-256 de "cashless-rrhh:" + contraseña; cámbiala desde el panel)
+insert into admins (usuario, nombre, pass_hash)
+values ('admin', 'Administrador', '8ce7e8830c0de737cf1cfa9046e3663ad53912c8a4af5cc644f6036a0f5a9930')
+on conflict (usuario) do nothing;
+
+insert into config (clave, valor) values
+('modulos', '{
+  "asistencia": true, "nomina": true, "certificados": true, "documentos": true,
+  "activos": true, "adelantos": true, "objetivos": true, "reconocimientos": true,
+  "encuestas": true, "beneficios": true, "denuncias": true, "comunicacion": true,
+  "parametros": true
+}'::jsonb),
+('empresa', '{
+  "nombre": "Cashless Colombia S.A.S.", "nit": "900.000.000-0", "direccion": "",
+  "ciudad": "Bogotá D.C.", "telefono": "", "correo": "",
+  "representante": "Representante Legal", "cargo_rep": "Gerente de Talento Humano",
+  "exonerado_114_1": true
+}'::jsonb),
+('parametros', '{
+  "smmlv": 1750905, "aux_transporte": 249095,
+  "recargo_nocturno": 0.35, "extra_diurna": 0.25, "extra_nocturna": 0.75,
+  "hora_nocturna_inicio": 19, "hora_nocturna_fin": 6,
+  "salud_empleado": 0.04, "pension_empleado": 0.04,
+  "salud_empleador": 0.085, "pension_empleador": 0.12,
+  "caja": 0.04, "sena": 0.02, "icbf": 0.03,
+  "cesantias": 0.0833, "int_cesantias": 0.01, "prima": 0.0833, "vacaciones": 0.0417,
+  "tolerancia_min": 5, "horas_mes_override": null
+}'::jsonb)
+on conflict (clave) do nothing;
+
+insert into turnos (nombre, tipo, hora_inicio, hora_fin, almuerzo_inicio, almuerzo_fin, dias)
+select * from (values
+  ('Administrativo partido',  'partida',  '08:00'::time, '17:00'::time, '12:00'::time, '13:00'::time, '{1,2,3,4,5}'::smallint[]),
+  ('Operativo continuo',      'continua', '06:00'::time, '14:00'::time, null::time,    null::time,    '{1,2,3,4,5,6}'::smallint[]),
+  ('Tarde continuo',          'continua', '14:00'::time, '22:00'::time, null::time,    null::time,    '{1,2,3,4,5,6}'::smallint[])
+) as v(nombre,tipo,hora_inicio,hora_fin,almuerzo_inicio,almuerzo_fin,dias)
+where not exists (select 1 from turnos);
+
+-- Fin del esquema
